@@ -84,31 +84,10 @@ def detect_features(card_roi):
     print("\n=== Detecting Features for Card ===")
     
     gray = cv2.cvtColor(card_roi, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
     
-    # Try adaptive thresholding instead of simple binary threshold
-    thresh = cv2.adaptiveThreshold(
-        blurred,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        11,  # Block size
-        2    # C constant
-    )
-    
-    # Add morphological operations to clean up noise
-    kernel = np.ones((3,3), np.uint8)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-
-    # Try multiple contour retrieval methods if first fails    
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    if len(contours) == 0:
-        # If no contours found, try different threshold
-        _, thresh2 = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        contours, _ = cv2.findContours(thresh2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    
     # Convert contours to relative coordinates
     relative_contours = []
     height, width = card_roi.shape[:2]
