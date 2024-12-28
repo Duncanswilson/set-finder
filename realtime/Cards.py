@@ -23,108 +23,27 @@ CARD_MIN_AREA = 25000
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 
-### Structures to hold query card and train card information ###
-
-class Query_card:
-    """Structure to store information about query cards in the camera image."""
-
-    def __init__(self):
-        self.contour = [] # Contour of card
-        self.width, self.height = 0, 0 # Width and height of card
-        self.corner_pts = [] # Corner points of card
-        self.center = [] # Center point of card
-        self.warp = [] # 200x300, flattened, grayed, blurred image
-        self.rank_img = [] # Thresholded, sized image of card's rank
-        self.suit_img = [] # Thresholded, sized image of card's suit
-        self.best_rank_match = "Unknown" # Best matched rank
-        self.best_suit_match = "Unknown" # Best matched suit
-        self.rank_diff = 0 # Difference between rank image and best matched train rank image
-        self.suit_diff = 0 # Difference between suit image and best matched train suit image
-
+### Structures to hold card and train card information ###
 class Set_card:
     """Structure to store information about query cards in the camera image."""
-
     def __init__(self):
         self.contour = [] # Contour of card
         self.width, self.height = 0, 0 # Width and height of card
         self.corner_pts = [] # Corner points of card
         self.center = [] # Center point of card
         self.warp = [] # 200x300, flattened, grayed, blurred image
-        # self.rank_img = [] # Thresholded, sized image of card's rank
-        # self.suit_img = [] # Thresholded, sized image of card's suit
-        self.best_rank_match = "Unknown" # Best matched rank
-        self.best_suit_match = "Unknown" # Best matched suit
-        self.rank_diff = 0 # Difference between rank image and best matched train rank image
-        self.suit_diff = 0 # Difference between suit image and best matched train suit image
         self.color = "Unknown"
         self.roi = None
         self.quantity = "Unknown"
         self.shading = "Unknown"
         self.shape = "Unknown"
 
-    def debug_shading(self, shape_img):
-        """Debug visualization for shading detection"""
-        hsv = cv2.cvtColor(shape_img, cv2.COLOR_BGR2HSV)
-        h_channel = hsv[:, :, 0]
-        
-        # Create masks
-        gray = cv2.cvtColor(shape_img, cv2.COLOR_BGR2GRAY)
-        _, dark_mask = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
-        _, light_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
-        symbol_mask = cv2.bitwise_or(dark_mask, light_mask)
-        
-        # Get masked hue values
-        masked_hue = cv2.bitwise_and(h_channel, h_channel, mask=symbol_mask)
-        
-        plt.figure(figsize=(15, 5))
-        
-        # Original image
-        plt.subplot(141)
-        plt.imshow(cv2.cvtColor(shape_img, cv2.COLOR_BGR2RGB))
-        plt.title('Original')
-        
-        # Mask
-        plt.subplot(142)
-        plt.imshow(symbol_mask, cmap='gray')
-        plt.title('Symbol Mask')
-        
-        # Masked hue
-        plt.subplot(143)
-        plt.imshow(masked_hue, cmap='hsv')
-        plt.title('Masked Hue')
-        
-        # Histogram
-        plt.subplot(144)
-        hue_values = masked_hue[symbol_mask > 0]
-        if len(hue_values) > 0:
-            plt.hist(hue_values, bins=30)
-            plt.title(f'Hue Histogram\nVariance: {np.var(hue_values):.2f}')
-        
-        plt.tight_layout()
-        plt.show()
-
 def preprocess_image(image):
     """Returns a grayed, blurred, and adaptively thresholded camera image."""
 
     gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray,(5,5),0)
-
-    # The best threshold level depends on the ambient lighting conditions.
-    # For bright lighting, a high threshold must be used to isolate the cards
-    # from the background. For dim lighting, a low threshold must be used.
-    # To make the card detector independent of lighting conditions, the
-    # following adaptive threshold method is used.
-    #
-    # A background pixel in the center top of the image is sampled to determine
-    # its intensity. The adaptive threshold is set at 50 (THRESH_ADDER) higher
-    # than that. This allows the threshold to adapt to the lighting conditions.
-    img_w, img_h = np.shape(image)[:2]
-    bkg_level = gray[int(img_h/100)][int(img_w/2)]
-    thresh_level = bkg_level + BKG_THRESH
-
     thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,11,2)
-    # retval, thresh = cv2.threshold(blur,thresh_level,255,cv2.THRESH_BINARY)
-
+    # _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
     return thresh
 
 def find_cards(thresh_image):
@@ -134,6 +53,7 @@ def find_cards(thresh_image):
 
     # Find contours and sort their indices by contour size
     cnts,hier = cv2.findContours(thresh_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+    print(len(cnts))
     index_sort = sorted(range(len(cnts)), key=lambda i : cv2.contourArea(cnts[i]),reverse=True)
 
     # If there are no contours, do nothing
@@ -174,52 +94,52 @@ def preprocess_card(contour, image):
     and suit images from the card."""
 
     # Initialize new Query_card object
-    qCard = Set_card()
+    sCard = Set_card()
 
-    qCard.contour = contour
+    sCard.contour = contour
 
     # Find perimeter of card and use it to approximate corner points
     peri = cv2.arcLength(contour,True)
     approx = cv2.approxPolyDP(contour,0.01*peri,True)
     pts = np.float32(approx)
-    qCard.corner_pts = pts
+    sCard.corner_pts = pts
 
     # Find width and height of card's bounding rectangle
     x,y,w,h = cv2.boundingRect(contour)
-    qCard.width, qCard.height = w, h
+    sCard.width, sCard.height = w, h
 
     # Find center point of card by taking x and y average of the four corners.
     average = np.sum(pts, axis=0)/len(pts)
     cent_x = int(average[0][0])
     cent_y = int(average[0][1])
-    qCard.center = [cent_x, cent_y]
+    sCard.center = [cent_x, cent_y]
 
     # Warp card into 200x300 flattened image using perspective transform
-    qCard.warp = flattener(image, pts, w, h)
+    sCard.warp = flattener(image, pts, w, h)
 
     #create the region of interest for the card (might want to use the warp instead)
-    qCard.roi =  image[y:y+h, x:x+w].copy()
+    sCard.roi =  image[y:y+h, x:x+w].copy()
 
-    return qCard
+    return sCard
 
-def match_card(qCard):
-    qCard.color = detect_color(qCard.warp)
-    qCard.shape, qCard.quantity, qCard.shading = detect_features(qCard.warp)
+def match_card(sCard):
+    sCard.color = detect_color(sCard.warp)
+    sCard.shape, sCard.quantity, sCard.shading = detect_features(sCard.warp)
 
     
-def draw_results(image, qCard):
+def draw_results(image, sCard):
     """Draw the card name, center point, and contour on the camera image."""
 
-    x = qCard.center[0]
-    y = qCard.center[1]
+    x = sCard.center[0]
+    y = sCard.center[1]
     cv2.circle(image,(x,y),5,(255,0,0),-1)
 
     # rank_name = qCard.best_rank_match
     # suit_name = qCard.best_suit_match
-    color = qCard.color
-    quantity = qCard.quantity
-    shading = qCard.shading
-    shape = qCard.shape
+    color = sCard.color
+    quantity = sCard.quantity
+    shading = sCard.shading
+    shape = sCard.shape
 
     # Draw card name twice, so letters have black outline
     cv2.putText(image,quantity,(x-60,y-50),font,1,(0,0,0),3,cv2.LINE_AA)
@@ -238,7 +158,7 @@ def draw_results(image, qCard):
 
 def flattener(image, pts, w, h):
     """Flattens an image of a card into a top-down 200x300 perspective.
-    Returns the flattened, re-sized, grayed image.
+    Returns the flattened, re-sized image.
     See www.pyimagesearch.com/2014/08/25/4-point-opencv-getperspective-transform-example/"""
     temp_rect = np.zeros((4,2), dtype = "float32")
     
@@ -304,53 +224,76 @@ def flattener(image, pts, w, h):
 
 
 def detect_color(card_roi):
+    # Convert to HSV and get average color values
     hsv = cv2.cvtColor(card_roi, cv2.COLOR_BGR2HSV)
-    # hsv = card_roi
-
-    # Define HSV ranges for each color
+    
+    # Create a mask to focus on the symbols/shapes
+    gray = cv2.cvtColor(card_roi, cv2.COLOR_BGR2GRAY)
+    _, symbol_mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)
+    kernel = np.ones((3,3), np.uint8)
+    symbol_mask = cv2.morphologyEx(symbol_mask, cv2.MORPH_CLOSE, kernel)
+    
+    # Define HSV ranges for each color - adjusted for better purple detection
     red_lower1 = np.array([0, 50, 50])
     red_upper1 = np.array([10, 255, 255])
-    red_lower2 = np.array([160, 50, 50])
+    red_lower2 = np.array([170, 50, 50])  # Shifted from 160 to 170 to reduce purple confusion
     red_upper2 = np.array([180, 255, 255])
     
     green_lower = np.array([35, 50, 50])
     green_upper = np.array([85, 255, 255])
     
-    purple_lower = np.array([130, 50, 50])
-    purple_upper = np.array([155, 255, 255])
+    # Widened purple range and increased saturation threshold
+    purple_lower = np.array([125, 30, 50])  # Lowered from 130 to 125
+    purple_upper = np.array([165, 255, 255])  # Increased from 155 to 165
     
     # Create masks for each color
     red_mask1 = cv2.inRange(hsv, red_lower1, red_upper1)
     red_mask2 = cv2.inRange(hsv, red_lower2, red_upper2)
-    red_mask = red_mask1 + red_mask2
+    red_mask = cv2.bitwise_or(red_mask1, red_mask2)
     
     green_mask = cv2.inRange(hsv, green_lower, green_upper)
     purple_mask = cv2.inRange(hsv, purple_lower, purple_upper)
     
-    # Calculate percentage of pixels in each color range
-    total_pixels = card_roi.shape[0] * card_roi.shape[1]
-    red_pixels = np.sum(red_mask > 0)
-    green_pixels = np.sum(green_mask > 0)
-    purple_pixels = np.sum(purple_mask > 0)
+    # Apply symbol mask to color masks
+    red_mask = cv2.bitwise_and(red_mask, symbol_mask)
+    green_mask = cv2.bitwise_and(green_mask, symbol_mask)
+    purple_mask = cv2.bitwise_and(purple_mask, symbol_mask)
     
-    # Calculate percentages
-    red_percent = red_pixels / total_pixels
-    green_percent = green_pixels / total_pixels
-    purple_percent = purple_pixels / total_pixels
+    # Calculate weighted color scores
+    symbol_pixels = np.sum(symbol_mask > 0)
+    if symbol_pixels == 0:
+        return 'unknown'
+    
+    # Get mean HSV values for the symbol areas
+    symbol_hsv = cv2.bitwise_and(hsv, hsv, mask=symbol_mask)
+    mean_hsv = cv2.mean(symbol_hsv, mask=symbol_mask)[:3]
+    
+    # Calculate color scores with weights
+    red_score = np.sum(red_mask > 0) / symbol_pixels
+    green_score = np.sum(green_mask > 0) / symbol_pixels
+    purple_score = np.sum(purple_mask > 0) / symbol_pixels
+    
+    # Add hue-based weighting for purple vs red disambiguation
+    hue = mean_hsv[0]
+    if 125 <= hue <= 165:  # If hue is in purple range
+        purple_score *= 1.2  # Boost purple score
     
     print("\n=== Color Detection ===")
-    print(f"Average HSV: {np.mean(hsv, axis=(0,1))}")
-    print(f"Red pixels: {red_percent:.3f}")
-    print(f"Green pixels: {green_percent:.3f}")
-    print(f"Purple pixels: {purple_percent:.3f}")
+    print(f"Mean HSV: {mean_hsv}")
+    print(f"Red score: {red_score:.3f}")
+    print(f"Green score: {green_score:.3f}")
+    print(f"Purple score: {purple_score:.3f}")
     
-    # Determine color based on highest percentage
-    if max(red_percent, green_percent, purple_percent) < 0.05:
-        print("Warning: Very few colored pixels detected")
-        
-    if red_percent > green_percent and red_percent > purple_percent:
+    # Determine color based on highest score with minimum threshold
+    min_score_threshold = 0.15
+    max_score = max(red_score, green_score, purple_score)
+    
+    if max_score < min_score_threshold:
+        print("Warning: Color scores below threshold")
+        detected_color = 'unknown'
+    elif red_score > green_score and red_score > purple_score:
         detected_color = 'red'
-    elif green_percent > red_percent and green_percent > purple_percent:
+    elif green_score > red_score and green_score > purple_score:
         detected_color = 'green'
     else:
         detected_color = 'purple'
@@ -444,13 +387,6 @@ def detect_features(card_warp):
         if props['aspect_ratio'] < 0.3:
             print(f"Rejecting contour {i}: Aspect ratio too extreme")
             continue
-            
-        print(f"\nContour {i}:")
-        print(f"  Area = {props['area']}, Relative area = {props['relative_area']:.4f}")
-        print(f"  Circularity: {props['circularity']:.3f}")
-        print(f"  Aspect ratio: {props['aspect_ratio']:.3f}")
-        print(f"  Approx vertices: {props['vertices']}")
-        print(f"  Solidity: {props['solidity']:.3f}")
         
         # Improved shape classification
         if props['circularity'] > 0.65 and props['solidity'] > 0.9:
@@ -478,16 +414,8 @@ def detect_features(card_warp):
 
     # Use only the final filtered contours for shading detection
     symbol_mask = np.zeros_like(thresh)
-    # for c in final_contours:
     if final_contours:  # Check if list is not empty before accessing first element
         cv2.drawContours(symbol_mask, [final_contours[0]], -1, 255, -1)
-    
-    # # Debug shading detection
-    # total_pixels = card_roi.shape[0] * card_roi.shape[1]
-    # white_pixels = np.sum(thresh == 255)
-    # fill_fraction = white_pixels / total_pixels
-    
-    # Get the thresholded image only within symbols
     # Convert card_warp to grayscale for symbol content analysis
     if len(card_warp.shape) == 3:
         gray_warp = cv2.cvtColor(card_warp, cv2.COLOR_BGR2GRAY)
@@ -518,15 +446,8 @@ def detect_features(card_warp):
     )    
     # Combine the masks - only keep stripe details within symbol regions
     symbol_mask = cv2.bitwise_and(stripe_mask, stripe_mask, mask=symbol_regions)
-    
-    # Debug visualization
-    # cv2.imshow('Gray Warp', gray_warp)
-    # cv2.imshow('Symbol Regions', symbol_regions)
-    # cv2.imshow('Stripe Mask', stripe_mask)
-    # cv2.imshow('Final Symbol Mask', symbol_mask)
-    # cv2.waitKey(1)
-    
-    # Calculate fill ratio using the symbol mask
+
+    # Calculate fill and striped ratios
     symbol_pixels = np.sum(symbol_regions > 0)  # Total area of symbols
     _, filled_mask = cv2.threshold(gray_warp, 128, 255, cv2.THRESH_BINARY_INV)
     filled_mask = cv2.bitwise_and(filled_mask, symbol_regions)
@@ -535,12 +456,10 @@ def detect_features(card_warp):
     white_pixels = np.sum(symbol_mask == 255)
     striped_fill_ratio = white_pixels / symbol_pixels if symbol_pixels > 0 else 0
     
-    print(f"\nShading Analysis Metrics:")
+    # Adjust thresholds for different shading types
+    THRESHOLD = 0.70
     print(f"Solid fill ratio: {solid_fill_ratio:.3f}")
     print(f"Striped fill ratio: {striped_fill_ratio:.3f}")
-    
-    # Adjust thresholds for different shading types
-    THRESHOLD = 0.65
 
     # Classification logic
     if solid_fill_ratio > THRESHOLD:
