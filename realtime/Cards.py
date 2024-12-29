@@ -43,7 +43,7 @@ def preprocess_image(image):
 
     gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
     thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,11,2)
-    # _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
+    cv2.imshow("thresh", thresh)
     return thresh
 
 def find_cards(thresh_image):
@@ -53,8 +53,17 @@ def find_cards(thresh_image):
 
     # Find contours and sort their indices by contour size
     cnts,hier = cv2.findContours(thresh_image,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-    print(len(cnts))
     index_sort = sorted(range(len(cnts)), key=lambda i : cv2.contourArea(cnts[i]),reverse=True)
+
+    # Create debug images
+    debug_image = cv2.cvtColor(thresh_image, cv2.COLOR_GRAY2BGR)
+    size_filtered_image = debug_image.copy()
+    quad_filtered_image = debug_image.copy()
+    angle_filtered_image = debug_image.copy()
+    final_image = debug_image.copy()
+
+    # print("\n=== Card Detection Debug ===")
+    # print(f"Total contours found: {len(cnts)}")
 
     # If there are no contours, do nothing
     if len(cnts) == 0:
@@ -65,27 +74,53 @@ def find_cards(thresh_image):
     hier_sort = []
     cnt_is_card = np.zeros(len(cnts),dtype=int)
 
-    # Fill empty lists with sorted contour and sorted hierarchy. Now,
-    # the indices of the contour list still correspond with those of
-    # the hierarchy list. The hierarchy array can be used to check if
-    # the contours have parents or not.
+    # Fill empty lists with sorted contour and sorted hierarchy
     for i in index_sort:
         cnts_sort.append(cnts[i])
         hier_sort.append(hier[0][i])
 
-    # Determine which of the contours are cards by applying the
-    # following criteria: 1) Smaller area than the maximum card size,
-    # 2), bigger area than the minimum card size, 3) have no parents,
-    # and 4) have four corners
-
     for i in range(len(cnts_sort)):
         size = cv2.contourArea(cnts_sort[i])
-        peri = cv2.arcLength(cnts_sort[i],True)
-        approx = cv2.approxPolyDP(cnts_sort[i],0.01*peri,True)
         
-        if ((size < CARD_MAX_AREA) and (size > CARD_MIN_AREA)
-            and (hier_sort[i][3] == -1) and (len(approx) == 4)):
-            cnt_is_card[i] = 1
+        # Debug size filtering
+        if (size < CARD_MAX_AREA) and (size > CARD_MIN_AREA):
+            print(f"\nContour {i} - Area: {size}")
+            peri = cv2.arcLength(cnts_sort[i],True)
+            approx = cv2.approxPolyDP(cnts_sort[i],0.02*peri,True)
+            
+            # Debug quadrilateral filtering
+            if len(approx) == 4:
+                print(f"Passed quadrilateral check")
+                
+                # Convert points to more usable format
+                pts = approx.reshape(4, 2)
+                
+                # Check if the angles are roughly 90 degrees
+                angles = []
+                for j in range(4):
+                    pt1 = pts[j]
+                    pt2 = pts[(j+1)%4]
+                    pt3 = pts[(j+2)%4]
+                    
+                    # Calculate vectors
+                    v1 = pt1 - pt2
+                    v2 = pt3 - pt2
+                    
+                    # Calculate angle
+                    cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+                    angle = np.abs(np.arccos(cos_angle) * 180 / np.pi)
+                    angles.append(angle)
+                
+                print(f"Angles: {[round(a, 1) for a in angles]}")
+                
+                # Check if angles are approximately 90 degrees (within tolerance)
+                angles_ok = all(abs(angle - 90) < 20 for angle in angles)
+                
+                if angles_ok:
+                    print("Passed angle check")
+                    print("Passed all checks - Valid card!")
+                    cnt_is_card[i] = 1
+
 
     return cnts_sort, cnt_is_card
 

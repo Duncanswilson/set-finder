@@ -13,6 +13,7 @@ import time
 import os
 import Cards
 import VideoStream
+from CardTracker import CardTracker
 
 def all_same_or_all_different(a, b, c):
     return (a == b == c) or (a != b and b != c and a != c)
@@ -22,6 +23,8 @@ def is_set(card1, card2, card3):
             all_same_or_all_different(card1.shape, card2.shape, card3.shape) and
             all_same_or_all_different(card1.shading, card2.shading, card3.shading) and
             all_same_or_all_different(card1.quantity, card2.quantity, card3.quantity))
+
+card_tracker = CardTracker(memory_frames=5)
 
 
 ### ---- INITIALIZATION ---- ###
@@ -90,7 +93,6 @@ while cam_quit == 0:
     # If there are no contours, do nothing
     if len(cnts_sort) != 0:
         # Initialize a new "cards" list to assign the card objects.
-        # k indexes the newly made array of cards.
         cards = []
         k = 0
         # For each contour detected:
@@ -98,49 +100,56 @@ while cam_quit == 0:
             if (cnt_is_card[i] == 1):
                 cards.append(Cards.preprocess_card(cnts_sort[i],image))
                 Cards.match_card(cards[k])
-                # Draw center point and match result on the image.
-                image = Cards.draw_results(image, cards[k])
                 k = k + 1
-        found_sets = []
-        # Create a dictionary to track which sets each card belongs to
-        card_sets = {i: [] for i in range(len(cards))}
         
-        for i in range(len(cards)):
-            for j in range(i+1, len(cards)):
-                for k in range(j+1, len(cards)):
-                    if is_set(cards[i], cards[j], cards[k]):
-                        set_index = len(found_sets)
-                        found_sets.append([cards[i].contour, cards[j].contour, cards[k].contour])
+        # Update the card tracker with new detections
+        card_tracker.update(cards, image)
+        
+        # Get stable cards for display and set detection
+        stable_cards = card_tracker.get_stable_cards()
+        
+        # Draw results for stable cards
+        for card in stable_cards:
+            image = Cards.draw_results(image, card)
+        
+        # Find sets using stable cards
+        found_sets = []
+        card_sets = {i: [] for i in range(len(stable_cards))}
+        
+        for i in range(len(stable_cards)):
+            for j in range(i+1, len(stable_cards)):
+                for k in range(j+1, len(stable_cards)):
+                    if is_set(stable_cards[i], stable_cards[j], stable_cards[k]):
+                        found_sets.append([stable_cards[i].contour, stable_cards[j].contour, stable_cards[k].contour])
                         # Track which sets each card belongs to
-                        card_sets[i].append(set_index)
-                        card_sets[j].append(set_index)
-                        card_sets[k].append(set_index)
+                        card_sets[i].append(len(found_sets) - 1)
+                        card_sets[j].append(len(found_sets) - 1)
+                        card_sets[k].append(len(found_sets) - 1)
 
-        # Draw card contours and set numbers
-        if (len(found_sets) != 0):
+        # Get stable sets using the tracker
+        stable_sets = card_tracker.update_sets(found_sets)
+
+        # Draw card contours and set numbers using stable sets
+        if stable_sets:
             # Draw each set with its unique color
-            for i, set_cards in enumerate(found_sets):
+            for i, set_cards in enumerate(stable_sets):
                 color = SET_COLORS[i % len(SET_COLORS)]
                 cv2.drawContours(image, set_cards, -1, color, 2)
             
             # Add set numbers for each card
             for card_idx, set_numbers in card_sets.items():
-                if set_numbers:  # Only process cards that are part of sets
-                    card = cards[card_idx]
-                    # Calculate text position near the card's center
+                if set_numbers:
+                    card = stable_cards[card_idx]
                     text = f"Sets: {','.join(str(n+1) for n in set_numbers)}"
-                    # Get the center point of the card
                     M = cv2.moments(card.contour)
                     if M["m00"] != 0:
                         cx = int(M["m10"] / M["m00"])
                         cy = int(M["m01"] / M["m00"])
-                        # Draw white background for better visibility
                         text_size = cv2.getTextSize(text, font, 0.6, 2)[0]
                         cv2.rectangle(image, 
                                     (cx - text_size[0]//2 - 5, cy - text_size[1]//2 - 5),
                                     (cx + text_size[0]//2 + 5, cy + text_size[1]//2 + 5),
                                     (255, 255, 255), -1)
-                        # Draw text
                         cv2.putText(image, text, (cx - text_size[0]//2, cy + text_size[1]//2),
                                   font, 0.6, (0, 0, 0), 2, cv2.LINE_AA)
 
