@@ -83,47 +83,72 @@ def find_cards(thresh_image):
     # 2), bigger area than the minimum card size, 3) have no parents,
     # and 4) have four corners
 
+    # Define card aspect ratio constants
+    CARD_ASPECT_RATIO = 1.56  # height/width for a Set card
+    ASPECT_RATIO_TOLERANCE = 0.3  # Allow ±30% variation
+
     for i in range(len(cnts_sort)):
         size = cv2.contourArea(cnts_sort[i])
         
         # Draw contours that pass size filter in green
         if (size < CARD_MAX_AREA) and (size > CARD_MIN_AREA):
-            cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,255,0), 2)
-            peri = cv2.arcLength(cnts_sort[i],True)
-            approx = cv2.approxPolyDP(cnts_sort[i],0.02*peri,True)
+            # Get bounding rectangle to check aspect ratio
+            x, y, w, h = cv2.boundingRect(cnts_sort[i])
+            aspect_ratio = h / w
             
-            # If contour has 4 corners, draw it in red
-            if len(approx) == 4:
-                cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,0,255), 2)
+            # Check if aspect ratio is within tolerance
+            aspect_ratio_ok = abs(aspect_ratio - CARD_ASPECT_RATIO) < (CARD_ASPECT_RATIO * ASPECT_RATIO_TOLERANCE)
+            
+            if aspect_ratio_ok:
+                cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,255,0), 2)
+                # Add aspect ratio text
+                cv2.putText(size_filtered, f"AR: {aspect_ratio:.2f}", 
+                          (x, y-10), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 
+                          0.6, (0,255,0), 2)
                 
-                # Convert points to more usable format
-                pts = approx.reshape(4, 2)
+                peri = cv2.arcLength(cnts_sort[i],True)
+                approx = cv2.approxPolyDP(cnts_sort[i],0.02*peri,True)
                 
-                # Calculate and draw angles
-                angles = []  # Create list to store angles
-                for j in range(4):
-                    pt1 = pts[j]
-                    pt2 = pts[(j+1)%4]
-                    pt3 = pts[(j+2)%4]
+                # If contour has 4 corners, draw it in red
+                if len(approx) == 4:
+                    cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,0,255), 2)
                     
-                    # Calculate vectors and angle
-                    v1 = pt1 - pt2
-                    v2 = pt3 - pt2
-                    cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-                    angle = np.abs(np.arccos(cos_angle) * 180 / np.pi)
-                    angles.append(angle)  # Add angle to list
+                    # Convert points to more usable format
+                    pts = approx.reshape(4, 2)
                     
-                    # Draw angle text at each corner
-                    cv2.putText(size_filtered, f"{angle:.1f}", 
-                              tuple(pt2.astype(int)), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 
-                              0.6, (255,255,255), 2)
-                
-                # Check if angles are approximately 90 degrees
-                angles_ok = all(abs(angle - 90) < 20 for angle in angles)
-                
-                if angles_ok:
-                    cnt_is_card[i] = 1
+                    # Calculate and draw angles
+                    angles = []  # Create list to store angles
+                    for j in range(4):
+                        pt1 = pts[j]
+                        pt2 = pts[(j+1)%4]
+                        pt3 = pts[(j+2)%4]
+                        
+                        # Calculate vectors and angle
+                        v1 = pt1 - pt2
+                        v2 = pt3 - pt2
+                        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+                        angle = np.abs(np.arccos(cos_angle) * 180 / np.pi)
+                        angles.append(angle)  # Add angle to list
+                        
+                        # Draw angle text at each corner
+                        cv2.putText(size_filtered, f"{angle:.1f}", 
+                                  tuple(pt2.astype(int)), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 
+                                  0.6, (255,255,255), 2)
+                    
+                    # Check if angles are approximately 90 degrees
+                    angles_ok = all(abs(angle - 90) < 20 for angle in angles)
+                    
+                    if angles_ok:
+                        cnt_is_card[i] = 1
+            else:
+                # Draw rejected contours in yellow with their aspect ratio
+                cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,255,255), 2)
+                cv2.putText(size_filtered, f"Bad AR: {aspect_ratio:.2f}", 
+                          (x, y-10), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 
+                          0.6, (0,255,255), 2)
 
     cv2.imshow("Filtered Contours", size_filtered)
     return cnts_sort, cnt_is_card
