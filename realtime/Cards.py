@@ -56,19 +56,24 @@ def find_cards(thresh_image):
     print(len(cnts))
     index_sort = sorted(range(len(cnts)), key=lambda i : cv2.contourArea(cnts[i]),reverse=True)
 
-    # If there are no contours, do nothing
+    # Create debug images - convert threshold image to BGR so we can draw colored contours
+    debug_image = cv2.cvtColor(thresh_image, cv2.COLOR_GRAY2BGR)
+    
+    # Draw all contours in blue
+    cv2.drawContours(debug_image, cnts, -1, (255,0,0), 2)
+    cv2.imshow("All Contours", debug_image)
+    
+    # Create image for size-filtered contours
+    size_filtered = debug_image.copy()
+    
+    # Rest of the existing code...
     if len(cnts) == 0:
         return [], []
     
-    # Otherwise, initialize empty sorted contour and hierarchy lists
     cnts_sort = []
     hier_sort = []
     cnt_is_card = np.zeros(len(cnts),dtype=int)
 
-    # Fill empty lists with sorted contour and sorted hierarchy. Now,
-    # the indices of the contour list still correspond with those of
-    # the hierarchy list. The hierarchy array can be used to check if
-    # the contours have parents or not.
     for i in index_sort:
         cnts_sort.append(cnts[i])
         hier_sort.append(hier[0][i])
@@ -80,13 +85,47 @@ def find_cards(thresh_image):
 
     for i in range(len(cnts_sort)):
         size = cv2.contourArea(cnts_sort[i])
-        peri = cv2.arcLength(cnts_sort[i],True)
-        approx = cv2.approxPolyDP(cnts_sort[i],0.01*peri,True)
         
-        if ((size < CARD_MAX_AREA) and (size > CARD_MIN_AREA)
-            and (hier_sort[i][3] == -1) and (len(approx) == 4)):
-            cnt_is_card[i] = 1
+        # Draw contours that pass size filter in green
+        if (size < CARD_MAX_AREA) and (size > CARD_MIN_AREA):
+            cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,255,0), 2)
+            peri = cv2.arcLength(cnts_sort[i],True)
+            approx = cv2.approxPolyDP(cnts_sort[i],0.02*peri,True)
+            
+            # If contour has 4 corners, draw it in red
+            if len(approx) == 4:
+                cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,0,255), 2)
+                
+                # Convert points to more usable format
+                pts = approx.reshape(4, 2)
+                
+                # Calculate and draw angles
+                angles = []  # Create list to store angles
+                for j in range(4):
+                    pt1 = pts[j]
+                    pt2 = pts[(j+1)%4]
+                    pt3 = pts[(j+2)%4]
+                    
+                    # Calculate vectors and angle
+                    v1 = pt1 - pt2
+                    v2 = pt3 - pt2
+                    cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+                    angle = np.abs(np.arccos(cos_angle) * 180 / np.pi)
+                    angles.append(angle)  # Add angle to list
+                    
+                    # Draw angle text at each corner
+                    cv2.putText(size_filtered, f"{angle:.1f}", 
+                              tuple(pt2.astype(int)), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 
+                              0.6, (255,255,255), 2)
+                
+                # Check if angles are approximately 90 degrees
+                angles_ok = all(abs(angle - 90) < 20 for angle in angles)
+                
+                if angles_ok:
+                    cnt_is_card[i] = 1
 
+    cv2.imshow("Filtered Contours", size_filtered)
     return cnts_sort, cnt_is_card
 
 def preprocess_card(contour, image):
