@@ -96,13 +96,16 @@ def find_cards(thresh_image):
             x, y, w, h = cv2.boundingRect(cnts_sort[i])
             aspect_ratio = h / w
             
-            # Check if aspect ratio is within tolerance
-            aspect_ratio_ok = abs(aspect_ratio - CARD_ASPECT_RATIO) < (CARD_ASPECT_RATIO * ASPECT_RATIO_TOLERANCE)
+            # Check if aspect ratio matches either vertical or horizontal orientation
+            vertical_ok = abs(aspect_ratio - CARD_ASPECT_RATIO) < (CARD_ASPECT_RATIO * ASPECT_RATIO_TOLERANCE)
+            horizontal_ok = abs(aspect_ratio - (1/CARD_ASPECT_RATIO)) < ((1/CARD_ASPECT_RATIO) * ASPECT_RATIO_TOLERANCE)
+            aspect_ratio_ok = vertical_ok or horizontal_ok
             
             if aspect_ratio_ok:
                 cv2.drawContours(size_filtered, [cnts_sort[i]], -1, (0,255,0), 2)
-                # Add aspect ratio text
-                cv2.putText(size_filtered, f"AR: {aspect_ratio:.2f}", 
+                # Add aspect ratio text with orientation
+                orientation = "V" if vertical_ok else "H"
+                cv2.putText(size_filtered, f"AR: {aspect_ratio:.2f} {orientation}", 
                           (x, y-10), 
                           cv2.FONT_HERSHEY_SIMPLEX, 
                           0.6, (0,255,0), 2)
@@ -352,10 +355,10 @@ def detect_color(card_roi):
     min_score_threshold = 0.15
     max_score = max(red_score, green_score, purple_score)
     
-    if max_score < min_score_threshold:
-        print("Warning: Color scores below threshold")
-        detected_color = 'unknown'
-    elif red_score > green_score and red_score > purple_score:
+    # if max_score < min_score_threshold:
+    #     print("Warning: Color scores below threshold")
+    #     detected_color = 'unknown'
+    if red_score > green_score and red_score > purple_score:
         detected_color = 'red'
     elif green_score > red_score and green_score > purple_score:
         detected_color = 'green'
